@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HEIC转PDF功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .upload-area:hover {
+            border-color: #007bff;
+        }
+        .controls {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .control-group {
+            margin: 10px 0;
+        }
+        label {
+            display: inline-block;
+            width: 120px;
+            font-weight: bold;
+        }
+        select, input[type="number"], input[type="range"] {
+            padding: 5px;
+            margin-left: 10px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #e7f3ff;
+            border-radius: 5px;
+        }
+        .error {
+            background-color: #ffe6e6;
+            color: #d00;
+        }
+        .success {
+            background-color: #e6ffe6;
+            color: #008000;
+        }
+        .loading {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <h1>HEIC转PDF功能测试</h1>
+    
+    <div class="upload-area">
+        <input type="file" id="fileInput" accept=".heic,.heif" style="display: none;">
+        <p>点击选择或拖拽HEIC文件到这里</p>
+        <button onclick="document.getElementById('fileInput').click()">选择HEIC文件</button>
+    </div>
+
+    <div class="controls">
+        <h3>转换设置</h3>
+        
+        <div class="control-group">
+            <label>页面格式:</label>
+            <select id="pageFormat">
+                <option value="a4">A4</option>
+                <option value="letter">Letter</option>
+                <option value="original">原始尺寸</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>页面方向:</label>
+            <select id="orientation">
+                <option value="portrait">纵向</option>
+                <option value="landscape">横向</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>图片质量:</label>
+            <input type="range" id="quality" min="0.1" max="1" step="0.1" value="0.9">
+            <span id="qualityValue">0.9</span>
+        </div>
+
+        <div class="control-group">
+            <label>多图处理:</label>
+            <select id="multipleMode">
+                <option value="false">只导出第一张图片</option>
+                <option value="true">每张图片生成独立PDF</option>
+            </select>
+        </div>
+
+        <button id="convertBtn" onclick="convertToPdf()" disabled>转换为PDF</button>
+    </div>
+
+    <div id="result" class="result" style="display: none;"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="./dist/heic2any.js"></script>
+    <script>
+        let selectedFile = null;
+
+        // 质量滑块更新
+        document.getElementById('quality').addEventListener('input', function(e) {
+            document.getElementById('qualityValue').textContent = e.target.value;
+        });
+
+        // 文件选择
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                selectedFile = file;
+                document.getElementById('convertBtn').disabled = false;
+                showResult('已选择文件: ' + file.name, 'success');
+            }
+        });
+
+        // 拖拽支持
+        const uploadArea = document.querySelector('.upload-area');
+        uploadArea.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            this.style.borderColor = '#007bff';
+        });
+
+        uploadArea.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            this.style.borderColor = '#ccc';
+        });
+
+        uploadArea.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.style.borderColor = '#ccc';
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type === 'image/heic' || file.type === 'image/heif' || 
+                    file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
+                    selectedFile = file;
+                    document.getElementById('convertBtn').disabled = false;
+                    showResult('已选择文件: ' + file.name, 'success');
+                } else {
+                    showResult('请选择HEIC或HEIF格式的文件', 'error');
+                }
+            }
+        });
+
+        function showResult(message, type = 'success') {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.className = 'result ' + type;
+            resultDiv.style.display = 'block';
+        }
+
+        async function convertToPdf() {
+            if (!selectedFile) {
+                showResult('请先选择一个HEIC文件', 'error');
+                return;
+            }
+
+            const pageFormat = document.getElementById('pageFormat').value;
+            const orientation = document.getElementById('orientation').value;
+            const quality = parseFloat(document.getElementById('quality').value);
+            const multiple = document.getElementById('multipleMode').value === 'true';
+
+            showResult('正在转换，请稍候...', 'loading');
+            document.getElementById('convertBtn').disabled = true;
+
+            try {
+                const result = await heic2any({
+                    blob: selectedFile,
+                    toType: 'application/pdf',
+                    quality: quality,
+                    multiple: multiple,
+                    pdfPageFormat: pageFormat,
+                    pdfOrientation: orientation
+                });
+
+                if (Array.isArray(result)) {
+                    // 多个PDF文件
+                    result.forEach((blob, index) => {
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `converted_${index + 1}.pdf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    });
+                    showResult(`成功转换！已生成 ${result.length} 个PDF文件`, 'success');
+                } else {
+                    // 单个PDF文件
+                    const url = URL.createObjectURL(result);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'converted.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    showResult('转换成功！PDF文件已下载', 'success');
+                }
+            } catch (error) {
+                console.error('转换错误:', error);
+                showResult('转换失败: ' + error.message, 'error');
+            } finally {
+                document.getElementById('convertBtn').disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

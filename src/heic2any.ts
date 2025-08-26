@@ -1,7 +1,8 @@
 import "./gifshot";
 import "./libheif";
+import "./jspdf";
 
-const supportedMIMETypes = ["image/png", "image/jpeg", "image/gif"];
+const supportedMIMETypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
 
 type ResultType = "Blob" | "ImageData";
 
@@ -31,10 +32,7 @@ const utils = {
 			var blob = new Blob([ab], { type: mimeString });
 			return blob;
 		} catch (e) {
-			return "ERR_DOM Error on converting data URI to blob " + e &&
-				e.toString
-				? e.toString()
-				: e;
+			return "ERR_DOM Error on converting data URI to blob " + ((e as any) && (e as any).toString ? (e as any).toString() : String(e));
 		}
 	},
 
@@ -121,6 +119,112 @@ const utils = {
 		});
 	},
 
+	imagesToPdf: function ({
+		images,
+		pageFormat = "a4",
+		orientation = "portrait",
+		quality = 0.92,
+	}: {
+		images: string[];
+		pageFormat?: string;
+		orientation?: "portrait" | "landscape";
+		quality?: number;
+	}): Promise<string> {
+		return new Promise((resolve, reject) => {
+			try {
+				const pdf = new (window as any).jsPDF({
+					orientation,
+					unit: "mm",
+					format: pageFormat,
+				});
+
+				const pageWidth = pdf.internal.pageSize.getWidth();
+				const pageHeight = pdf.internal.pageSize.getHeight();
+				let loadedImages = 0;
+
+				images.forEach((imageDataUrl, index) => {
+					if (index > 0) {
+						pdf.addPage();
+					}
+
+					// Create a temporary image to get dimensions
+					const img = new Image();
+					img.onload = () => {
+						const imgWidth = img.width;
+						const imgHeight = img.height;
+
+						// Calculate aspect ratio and fit to page
+						let finalWidth, finalHeight;
+						if (pageFormat === "original") {
+							// Use original image dimensions (converted from pixels to mm)
+							finalWidth = imgWidth * 0.264583; // Convert pixels to mm (96 DPI)
+							finalHeight = imgHeight * 0.264583;
+							// Adjust PDF page size to match image
+							if (index === 0) {
+								// For first page, recreate PDF with custom size
+								const customPdf = new (window as any).jsPDF({
+									orientation: finalWidth > finalHeight ? "landscape" : "portrait",
+									unit: "mm",
+									format: [finalWidth, finalHeight],
+								});
+								customPdf.addImage(
+									imageDataUrl,
+									"JPEG",
+									0,
+									0,
+									finalWidth,
+									finalHeight
+								);
+								resolve(customPdf.output("datauristring"));
+								return;
+							}
+						} else {
+							// Fit to page while maintaining aspect ratio
+							const imgRatio = imgWidth / imgHeight;
+							const pageRatio = pageWidth / pageHeight;
+
+							if (imgRatio > pageRatio) {
+								// Image is wider, fit by width
+								finalWidth = pageWidth;
+								finalHeight = pageWidth / imgRatio;
+							} else {
+								// Image is taller, fit by height
+								finalHeight = pageHeight;
+								finalWidth = pageHeight * imgRatio;
+							}
+						}
+
+						// Center the image on the page
+						const x = (pageWidth - finalWidth) / 2;
+						const y = (pageHeight - finalHeight) / 2;
+
+						pdf.addImage(
+							imageDataUrl,
+							"JPEG",
+							x,
+							y,
+							finalWidth,
+							finalHeight
+						);
+
+						loadedImages++;
+						// If this is the last image, resolve with the PDF data URL
+						if (loadedImages === images.length) {
+							const pdfDataUrl = pdf.output("datauristring");
+							resolve(pdfDataUrl);
+						}
+					};
+					img.onerror = () => {
+						reject(`ERR_PDF Error loading image ${index}`);
+					};
+					img.src = imageDataUrl;
+				});
+			} catch (e) {
+				reject(`ERR_PDF Error creating PDF: ${e}`);
+			}
+		});
+	},
+
 	otherImageType: function (buffer: ArrayBuffer) {
 		/**
 		 * Some confusion might arise when passing a regular image
@@ -159,6 +263,7 @@ const utils = {
 		 * GIF errors = 3
 		 * DOM errors = 4
 		 * CANVAS errors = 5
+		 * PDF errors = 6
 		 *
 		 */
 
@@ -180,6 +285,7 @@ const utils = {
 			"ERR_GIF",
 			"ERR_DOM",
 			"ERR_CANVAS",
+			"ERR_PDF",
 		];
 		for (let index = 0; index < headers.length; index++) {
 			const header = headers[index];
@@ -219,12 +325,16 @@ function heic2any({
 	quality = 0.92,
 	gifInterval = 0.4,
 	multiple = undefined,
+	pdfPageFormat = "a4",
+	pdfOrientation = "portrait",
 }: {
 	blob: Blob;
 	multiple?: true;
 	toType?: string;
 	quality?: number;
 	gifInterval?: number;
+	pdfPageFormat?: string;
+	pdfOrientation?: "portrait" | "landscape";
 }): Promise<Blob | Blob[]> {
 	return new Promise(
 		(
@@ -247,6 +357,16 @@ function heic2any({
 			if (typeof gifInterval !== "number") {
 				utils.error(
 					`ERR_USER "gifInterval" parameter should be of type "number"`
+				);
+			}
+			if (typeof pdfPageFormat !== "string") {
+				utils.error(
+					`ERR_USER "pdfPageFormat" parameter should be of type "string"`
+				);
+			}
+			if (typeof pdfOrientation !== "string") {
+				utils.error(
+					`ERR_USER "pdfOrientation" parameter should be of type "string"`
 				);
 			}
 			const reader = new FileReader();
@@ -280,37 +400,70 @@ function heic2any({
 						if (toType === "image/gif") {
 							return Promise.all(
 								blobs.map((blob) => utils.blobToDataURL(blob))
-							);
+							).then((dataURIs) => {
+								return utils.imagesToGif({
+									images: dataURIs,
+									interval: gifInterval,
+									gifWidth,
+									gifHeight,
+								}).then((resultingGif) => {
+									const blob = utils.dataURItoBlob(resultingGif);
+									if (typeof blob === "string") {
+										reject(utils.error(blob));
+									} else {
+										resolve(blob);
+									}
+								});
+							});
+						} else if (toType === "application/pdf") {
+							return Promise.all(
+								blobs.map((blob) => utils.blobToDataURL(blob))
+							).then((dataURIs) => {
+								if (multiple) {
+									// Multiple PDFs: create one PDF per image
+									return Promise.all(
+										dataURIs.map((dataURI) =>
+											utils.imagesToPdf({
+												images: [dataURI],
+												pageFormat: pdfPageFormat,
+												orientation: pdfOrientation,
+												quality,
+											})
+										)
+									).then((pdfDataURIs) => {
+										const pdfBlobs = pdfDataURIs.map((pdfDataURI) => {
+											const blob = utils.dataURItoBlob(pdfDataURI);
+											if (typeof blob === "string") {
+												throw new Error(blob);
+											}
+											return blob;
+										});
+										resolve(pdfBlobs);
+									});
+								} else {
+									// Single PDF: use only first image
+									return utils.imagesToPdf({
+										images: [dataURIs[0]],
+										pageFormat: pdfPageFormat,
+										orientation: pdfOrientation,
+										quality,
+									}).then((pdfDataURI) => {
+										const blob = utils.dataURItoBlob(pdfDataURI);
+										if (typeof blob === "string") {
+											reject(utils.error(blob));
+										} else {
+											resolve(blob);
+										}
+									});
+								}
+							});
 						} else if (multiple) {
 							resolve(blobs);
-							return [""];
 						} else {
 							resolve(blobs[0]);
-							return [""];
 						}
 					})
-					.then((dataURIs) => {
-						if (toType === "image/gif" && dataURIs) {
-							return utils.imagesToGif({
-								images: dataURIs,
-								interval: gifInterval,
-								gifWidth,
-								gifHeight,
-							});
-						}
-						return "";
-					})
-					.then((resultingGif) => {
-						if (toType === "image/gif" && resultingGif) {
-							const blob = utils.dataURItoBlob(resultingGif);
-							if (typeof blob === "string") {
-								reject(utils.error(blob));
-							} else {
-								resolve(blob);
-							}
-						}
-					})
-					.catch((e) => {
+					.catch((e: any) => {
 						reject(utils.error(e));
 					});
 			};

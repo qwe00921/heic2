@@ -1,7 +1,7 @@
 {
-	"name": "heic2any",
-	"version": "0.0.4",
-	"description": "Converting HEIC/HEIF to PNG/JPEG/GIF in the browser",
+	"name": "heic2any-pdf",
+	"version": "1.0.0",
+	"description": "Converting HEIC/HEIF to PNG/JPEG/GIF/PDF in the browser - Extended with PDF support",
 	"main": "dist/heic2any.js",
 	"files": [
 		"dist"
@@ -13,22 +13,29 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/alexcorvi/heic2any.git"
+		"url": "git+https://github.com/YOUR_USERNAME/heic2any-pdf.git"
 	},
 	"keywords": [
 		"HEIC",
 		"HEIF",
 		"PNG",
+		"JPEG",
+		"GIF",
+		"PDF",
 		"image",
-		"conversion"
+		"conversion",
+		"browser",
+		"client-side"
 	],
-	"author": "Alex Corvi",
+	"author": "Your Name (based on original work by Alex Corvi)",
 	"license": "MIT",
 	"bugs": {
-		"url": "https://github.com/alexcorvi/heic2any/issues"
+		"url": "https://github.com/YOUR_USERNAME/heic2any-pdf/issues"
 	},
-	"homepage": "https://github.com/alexcorvi/heic2any#readme",
-	"dependencies": {},
+	"homepage": "https://github.com/YOUR_USERNAME/heic2any-pdf#readme",
+	"dependencies": {
+		"jspdf": "^3.0.2"
+	},
 	"devDependencies": {
 		"@types/buble": "^0.19.2",
 		"@types/chokidar": "^2.1.3",

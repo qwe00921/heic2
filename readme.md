@@ -1,8 +1,10 @@
-# HEIC2 ( Heic to jpg, Heic to png, Heic to pdf, heic to gif)
+# HEIC2ANY-PDF ( Heic to jpg, Heic to png, Heic to pdf, heic to gif)
+
+**基于 [alexcorvi/heic2any](https://github.com/alexcorvi/heic2any) 的扩展版本，增加了PDF转换功能**
 
 [Demo, Documentation & more](https://alexcorvi.github.io/heic2any/)
 
-Client-side (browser-side, using Javascript) conversion of [HEIC/HEIF](http://www.hackerfactor.com/blog/index.php?/archives/833-HEIC-Yeah.html) image files to JPEG, PNG, or GIF.
+Client-side (browser-side, using Javascript) conversion of [HEIC/HEIF](http://www.hackerfactor.com/blog/index.php?/archives/833-HEIC-Yeah.html) image files to JPEG, PNG, GIF, or PDF.
 
 ### What is HEIC format?
 
@@ -17,11 +19,46 @@ Currently there are [zero web browsers](https://caniuse.com/#search=heif) that s
 
 ### Usage and limitations
 
-This library would typically be used for viewing purposes, as currently it's not focusing on copying any metadata from the original `heic` file to the output `jpeg`, `gif` or `png`. The development process of this library is focusing on viewing a browser-consumable version of an `heic` file, and doing it quickly, asynchronously (using web workers) and accurately. This library would even convert `heic` containers that have multiple `heic` images into an animated `gif`.
+This library would typically be used for viewing purposes, as currently it's not focusing on copying any metadata from the original `heic` file to the output `jpeg`, `gif`, `png`, or `pdf`. The development process of this library is focusing on viewing a browser-consumable version of an `heic` file, and doing it quickly, asynchronously (using web workers) and accurately. This library would even convert `heic` containers that have multiple `heic` images into an animated `gif` or multi-page `pdf`.
 
 However, if you're planning on storing the files (not just viewing them), I'd suggest you look for a server-side tool, or you try to get your hands dirty and contribute to this library and make it capable of storing metadata.
 
 Last but not least, this tool is specifically for the browser environment, it **will not** work in node environment.
+
+### New PDF Conversion Feature
+
+This library now supports converting HEIC images directly to PDF format with the following features:
+
+- **PDF Page Formats**: Supports A4, Letter, and original image size
+- **Page Orientation**: Portrait or landscape orientation  
+- **Quality Control**: Adjustable image quality (0.1 - 1.0)
+- **Multiple Images Handling**: 
+  - `multiple: false` - Only exports the first image to PDF
+  - `multiple: true` - Exports all images from HEIC file, creates separate PDF for each image
+- **Automatic Image Fitting**: Images are automatically centered and scaled to fit the page while maintaining aspect ratio
+
+#### Usage Example
+
+```javascript
+import heic2any from 'heic2any';
+
+// Convert to PDF with A4 format
+const pdfBlob = await heic2any({
+    blob: heicFile,
+    toType: "application/pdf",
+    quality: 0.9,
+    pdfPageFormat: "a4",
+    pdfOrientation: "portrait"
+});
+
+// Convert multiple images to separate PDFs
+const pdfBlobs = await heic2any({
+    blob: heicFile,
+    toType: "application/pdf",
+    multiple: true,
+    pdfPageFormat: "original"
+});
+```
 
 ### Known issues
 

@@ -24,7 +24,8 @@ window.__heic2any__worker = new Worker(URL.createObjectURL(blob));"use strict";
 ;
 ;
 ;
-var supportedMIMETypes = ["image/png", "image/jpeg", "image/gif"];
+require("./jspdf");
+var supportedMIMETypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
 var utils = {
     blobToDataURL: function (blob) {
         return new Promise(function (resolve, reject) {
@@ -51,10 +52,7 @@ var utils = {
             return blob;
         }
         catch (e) {
-            return "ERR_DOM Error on converting data URI to blob " + e &&
-                e.toString
-                ? e.toString()
-                : e;
+            return "ERR_DOM Error on converting data URI to blob " + (e && e.toString ? e.toString() : String(e));
         }
     },
     imageDataToBlob: function (ref) {
@@ -114,6 +112,87 @@ var utils = {
             });
         });
     },
+    imagesToPdf: function (ref) {
+        var images = ref.images;
+        var pageFormat = ref.pageFormat; if ( pageFormat === void 0 ) pageFormat = "a4";
+        var orientation = ref.orientation; if ( orientation === void 0 ) orientation = "portrait";
+        var quality = ref.quality; if ( quality === void 0 ) quality = 0.92;
+
+        return new Promise(function (resolve, reject) {
+            try {
+                var pdf = new window.jsPDF({
+                    orientation: orientation,
+                    unit: "mm",
+                    format: pageFormat,
+                });
+                var pageWidth = pdf.internal.pageSize.getWidth();
+                var pageHeight = pdf.internal.pageSize.getHeight();
+                var loadedImages = 0;
+                images.forEach(function (imageDataUrl, index) {
+                    if (index > 0) {
+                        pdf.addPage();
+                    }
+                    // Create a temporary image to get dimensions
+                    var img = new Image();
+                    img.onload = function () {
+                        var imgWidth = img.width;
+                        var imgHeight = img.height;
+                        // Calculate aspect ratio and fit to page
+                        var finalWidth, finalHeight;
+                        if (pageFormat === "original") {
+                            // Use original image dimensions (converted from pixels to mm)
+                            finalWidth = imgWidth * 0.264583; // Convert pixels to mm (96 DPI)
+                            finalHeight = imgHeight * 0.264583;
+                            // Adjust PDF page size to match image
+                            if (index === 0) {
+                                // For first page, recreate PDF with custom size
+                                var customPdf = new window.jsPDF({
+                                    orientation: finalWidth > finalHeight ? "landscape" : "portrait",
+                                    unit: "mm",
+                                    format: [finalWidth, finalHeight],
+                                });
+                                customPdf.addImage(imageDataUrl, "JPEG", 0, 0, finalWidth, finalHeight);
+                                resolve(customPdf.output("datauristring"));
+                                return;
+                            }
+                        }
+                        else {
+                            // Fit to page while maintaining aspect ratio
+                            var imgRatio = imgWidth / imgHeight;
+                            var pageRatio = pageWidth / pageHeight;
+                            if (imgRatio > pageRatio) {
+                                // Image is wider, fit by width
+                                finalWidth = pageWidth;
+                                finalHeight = pageWidth / imgRatio;
+                            }
+                            else {
+                                // Image is taller, fit by height
+                                finalHeight = pageHeight;
+                                finalWidth = pageHeight * imgRatio;
+                            }
+                        }
+                        // Center the image on the page
+                        var x = (pageWidth - finalWidth) / 2;
+                        var y = (pageHeight - finalHeight) / 2;
+                        pdf.addImage(imageDataUrl, "JPEG", x, y, finalWidth, finalHeight);
+                        loadedImages++;
+                        // If this is the last image, resolve with the PDF data URL
+                        if (loadedImages === images.length) {
+                            var pdfDataUrl = pdf.output("datauristring");
+                            resolve(pdfDataUrl);
+                        }
+                    };
+                    img.onerror = function () {
+                        reject(("ERR_PDF Error loading image " + index));
+                    };
+                    img.src = imageDataUrl;
+                });
+            }
+            catch (e) {
+                reject(("ERR_PDF Error creating PDF: " + e));
+            }
+        });
+    },
     otherImageType: function (buffer) {
         /**
          * Some confusion might arise when passing a regular image
@@ -151,6 +230,7 @@ var utils = {
          * GIF errors = 3
          * DOM errors = 4
          * CANVAS errors = 5
+         * PDF errors = 6
          *
          */
         var code = 0;
@@ -170,7 +250,8 @@ var utils = {
             "ERR_LIBHEIF",
             "ERR_GIF",
             "ERR_DOM",
-            "ERR_CANVAS" ];
+            "ERR_CANVAS",
+            "ERR_PDF" ];
         for (var index = 0; index < headers.length; index++) {
             var header = headers[index];
             if (message.indexOf(header) === 0) {
@@ -204,6 +285,8 @@ function heic2any(ref) {
     var quality = ref.quality; if ( quality === void 0 ) quality = 0.92;
     var gifInterval = ref.gifInterval; if ( gifInterval === void 0 ) gifInterval = 0.4;
     var multiple = ref.multiple; if ( multiple === void 0 ) multiple = undefined;
+    var pdfPageFormat = ref.pdfPageFormat; if ( pdfPageFormat === void 0 ) pdfPageFormat = "a4";
+    var pdfOrientation = ref.pdfOrientation; if ( pdfOrientation === void 0 ) pdfOrientation = "portrait";
 
     return new Promise(function (resolve, reject) {
         if (!(blob instanceof Blob)) {
@@ -217,6 +300,12 @@ function heic2any(ref) {
         }
         if (typeof gifInterval !== "number") {
             utils.error("ERR_USER \"gifInterval\" parameter should be of type \"number\"");
+        }
+        if (typeof pdfPageFormat !== "string") {
+            utils.error("ERR_USER \"pdfPageFormat\" parameter should be of type \"string\"");
+        }
+        if (typeof pdfOrientation !== "string") {
+            utils.error("ERR_USER \"pdfOrientation\" parameter should be of type \"string\"");
         }
         var reader = new FileReader();
         reader.onload = function (e) {
@@ -239,37 +328,67 @@ function heic2any(ref) {
             })
                 .then(function (blobs) {
                 if (toType === "image/gif") {
-                    return Promise.all(blobs.map(function (blob) { return utils.blobToDataURL(blob); }));
+                    return Promise.all(blobs.map(function (blob) { return utils.blobToDataURL(blob); })).then(function (dataURIs) {
+                        return utils.imagesToGif({
+                            images: dataURIs,
+                            interval: gifInterval,
+                            gifWidth: gifWidth,
+                            gifHeight: gifHeight,
+                        }).then(function (resultingGif) {
+                            var blob = utils.dataURItoBlob(resultingGif);
+                            if (typeof blob === "string") {
+                                reject(utils.error(blob));
+                            }
+                            else {
+                                resolve(blob);
+                            }
+                        });
+                    });
+                }
+                else if (toType === "application/pdf") {
+                    return Promise.all(blobs.map(function (blob) { return utils.blobToDataURL(blob); })).then(function (dataURIs) {
+                        if (multiple) {
+                            // Multiple PDFs: create one PDF per image
+                            return Promise.all(dataURIs.map(function (dataURI) { return utils.imagesToPdf({
+                                images: [dataURI],
+                                pageFormat: pdfPageFormat,
+                                orientation: pdfOrientation,
+                                quality: quality,
+                            }); })).then(function (pdfDataURIs) {
+                                var pdfBlobs = pdfDataURIs.map(function (pdfDataURI) {
+                                    var blob = utils.dataURItoBlob(pdfDataURI);
+                                    if (typeof blob === "string") {
+                                        throw new Error(blob);
+                                    }
+                                    return blob;
+                                });
+                                resolve(pdfBlobs);
+                            });
+                        }
+                        else {
+                            // Single PDF: use only first image
+                            return utils.imagesToPdf({
+                                images: [dataURIs[0]],
+                                pageFormat: pdfPageFormat,
+                                orientation: pdfOrientation,
+                                quality: quality,
+                            }).then(function (pdfDataURI) {
+                                var blob = utils.dataURItoBlob(pdfDataURI);
+                                if (typeof blob === "string") {
+                                    reject(utils.error(blob));
+                                }
+                                else {
+                                    resolve(blob);
+                                }
+                            });
+                        }
+                    });
                 }
                 else if (multiple) {
                     resolve(blobs);
-                    return [""];
                 }
                 else {
                     resolve(blobs[0]);
-                    return [""];
-                }
-            })
-                .then(function (dataURIs) {
-                if (toType === "image/gif" && dataURIs) {
-                    return utils.imagesToGif({
-                        images: dataURIs,
-                        interval: gifInterval,
-                        gifWidth: gifWidth,
-                        gifHeight: gifHeight,
-                    });
-                }
-                return "";
-            })
-                .then(function (resultingGif) {
-                if (toType === "image/gif" && resultingGif) {
-                    var blob = utils.dataURItoBlob(resultingGif);
-                    if (typeof blob === "string") {
-                        reject(utils.error(blob));
-                    }
-                    else {
-                        resolve(blob);
-                    }
                 }
             })
                 .catch(function (e) {
